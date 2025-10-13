@@ -52,4 +52,4 @@ ENV SERVICE_VERSION=${SERVICE_VERSION}
 USER appuser
 
 # Başlangıç komutu: Uvicorn ile FastAPI'yi başlat
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "16010"]
+CMD ["/app/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "16010"]
