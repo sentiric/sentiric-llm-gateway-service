@@ -11,9 +11,9 @@ class Settings(BaseSettings):
     SERVICE_VERSION: str = "0.1.0"
     
     # AI Engine URL'leri (gRPC veya HTTP olabilir)
-    LLM_GEMINI_SERVICE_URL: str
-    LLM_OLLAMA_SERVICE_URL: Optional[str] = None
-    LLM_OPENAI_SERVICE_URL: Optional[str] = None
+    LLM_GEMINI_SERVICE_TARGET_HTTP_URL: str
+    LLM_OLLAMA_SERVICE_TARGET_HTTP_URL: Optional[str] = None
+    LLM_STREAMING_SERVICE_TARGET_HTTP_URL: Optional[str] = None
     
     # Redis (Caching için)
     REDIS_URL: str
