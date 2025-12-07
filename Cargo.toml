@@ -1,0 +1,48 @@
+[package]
+name = "sentiric-llm-gateway-service"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sentiric Team"]
+
+[dependencies]
+# Async Runtime & Web
+tokio = { version = "1.36", features = ["full"] }
+axum = { version = "0.7", features = ["json", "http2"] } 
+tower = { version = "0.4", features = ["util", "timeout", "load_shed"] }
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+hyper = { version = "1.0", features = ["full"] }
+
+# gRPC & Protobuf
+tonic = { version = "0.11", features = ["tls", "gzip"] }
+prost = "0.12"
+
+# Streaming Utilities
+tokio-stream = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+
+# Data & Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Config & Environment
+config = "0.14"
+dotenvy = "0.15"
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Client & Network
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+url = "2.5"
+
+# Sentiric Ecosystem
+[dependencies.sentiric-contracts]
+git = "https://github.com/sentiric/sentiric-contracts.git"
+branch = "main"
+
+[build-dependencies]
+tonic-build = "0.11"

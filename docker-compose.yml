@@ -1,0 +1,21 @@
+
+networks:
+  sentiric-net:
+    name: "${NETWORK_NAME:-sentiric.cloud}"
+    driver: bridge
+
+services:
+  llm-gateway-service:
+    container_name: sentiric-llm-gateway
+    restart: always
+    networks:
+      - sentiric-net
+    ports:
+      - "16020:16020"
+      - "16021:16021"
+      - "16022:16022"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:16020/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
