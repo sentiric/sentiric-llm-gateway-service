@@ -1,21 +1,60 @@
-
 networks:
   sentiric-net:
-    name: "${NETWORK_NAME:-sentiric.cloud}"
     driver: bridge
+    ipam:
+      config:
+        - subnet: ${NETWORK_SUBNET:-10.88.0.0/16}
+          gateway: ${NETWORK_GATEWAY:-10.88.0.1}
 
 services:
+  # 🧠 KATMAN 3: LLM GATEWAY SERVICE
   llm-gateway-service:
-    container_name: sentiric-llm-gateway
-    restart: always
-    networks:
-      - sentiric-net
+    image: ghcr.io/sentiric/sentiric-llm-gateway-service:latest
+    container_name: llm-gateway-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../sentiric-certificates:/sentiric-certificates:ro
+    environment:
+      - ENV=development
+      - RUST_LOG=info,sentiric_llm_gateway_service=debug
+      
+      # --- KRİTİK DÜZELTME ---
+      # 1. Mock servisin container ismi: llm-llama-mock-service
+      # 2. Mock servisin İÇ (Internal) gRPC portu: 4770 (Loglarda: Serving gRPC addr=[::]:4770)
+      - LLM_LLAMA_SERVICE_GRPC_URL=http://llm-llama-mock-service:4770
+      
+      # Sertifika Yolları (Zorunlu)
+      - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
+      - LLM_GATEWAY_SERVICE_CERT_PATH=/sentiric-certificates/certs/llm-gateway-service.crt
+      - LLM_GATEWAY_SERVICE_KEY_PATH=/sentiric-certificates/certs/llm-gateway-service.key
+      
     ports:
       - "16020:16020"
       - "16021:16021"
       - "16022:16022"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:16020/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    networks:
+      sentiric-net:
+        ipv4_address: ${LLM_GATEWAY_SERVICE_IPV4_ADDRESS:-10.88.60.2}
+    restart: always
+    depends_on:
+      - llm-llama-mock-service
+
+  # 🎭 MOCK ENGINE
+  llm-llama-mock-service:
+    image: ghcr.io/bavix/gripmock
+    container_name: llm-llama-mock-service
+    networks:
+      - sentiric-net
+    ports:
+      # Dış: 16071 -> İç: 4770
+      - "16071:4770"
+      - "4771:4771"
+    volumes:
+      - ../sentiric-contracts:/sentiric-contracts:ro
+    # Proto import yolu eklendi
+    command: 
+      - "--imports=/sentiric-contracts/proto"
+      - "/sentiric-contracts/proto/sentiric/llm/v1/llama.proto"
+      - "/sentiric-contracts/proto/sentiric/llm/v1/gateway.proto"

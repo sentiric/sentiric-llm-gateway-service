@@ -14,7 +14,7 @@ pub struct LlamaClient {
 
 impl LlamaClient {
     pub async fn connect(config: &Arc<AppConfig>) -> anyhow::Result<Self> {
-        let url = config.llm_llama_url.clone();
+        let url = config.llm_llama_service_grpc_url.clone();
         info!("Connecting to Llama Engine at: {}", url);
 
         // mTLS Konfigürasyonunu Yükle

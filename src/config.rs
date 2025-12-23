@@ -8,14 +8,12 @@ pub struct AppConfig {
     pub rust_log: String,
     pub service_version: String,
     
-    // Server Settings
     pub host: String,
     pub grpc_port: u16,
 
-    // Upstream Services (Expert Engines)
-    pub llm_llama_url: String, // http://llm-llama-service:16071
+    // DÜZELTME: Değişken adını netleştiriyoruz
+    pub llm_llama_service_grpc_url: String, 
 
-    // Security (mTLS Paths)
     pub grpc_tls_ca_path: String,
     pub llm_gateway_service_cert_path: String,
     pub llm_gateway_service_key_path: String,
@@ -25,14 +23,19 @@ impl AppConfig {
     pub fn load() -> Result<Self> {
         let builder = Config::builder()
             .add_source(File::with_name(".env").required(false))
-            .add_source(Environment::default())
-            // Defaults
+            // Environment değişkenlerini otomatik eşleştir (örn: LLM_LLAMA_URL -> llm_llama_url)
+            .add_source(Environment::default().separator("__"))
+            
+            // Manuel Override (Docker Compose'daki uzun ismi desteklemek için)
+            .set_override_option("llm_llama_service_grpc_url", std::env::var("LLM_LLAMA_SERVICE_GRPC_URL").ok())?
+            
+            // Varsayılan Değerler
             .set_default("env", "development")?
             .set_default("rust_log", "info")?
             .set_default("service_version", "1.0.0")?
             .set_default("host", "0.0.0.0")?
             .set_default("grpc_port", 16021)?
-            // Default to local docker compose service name
+            // Eğer her şey başarısız olursa bu çalışır (DNS hatası veren bu)
             .set_default("llm_llama_url", "http://llm-llama-service:16071")?;
 
         builder.build()?.try_deserialize().map_err(|e| e.into())
