@@ -4,6 +4,8 @@ use sentiric_contracts::sentiric::llm::v1::llama_service_client::LlamaServiceCli
 use sentiric_contracts::sentiric::llm::v1::{GenerateStreamRequest, GenerateStreamResponse};
 use tonic::transport::{Channel, Endpoint};
 use tonic::Request;
+use tonic::metadata::MetadataValue;
+use std::str::FromStr; // <-- KRİTİK DÜZELTME: Bu satır eklendi.
 use std::sync::Arc;
 use tracing::{info, error};
 
@@ -34,11 +36,20 @@ impl LlamaClient {
     pub async fn generate_stream(
         &self,
         request: GenerateStreamRequest,
+        trace_id: Option<String>,
     ) -> Result<tonic::Streaming<GenerateStreamResponse>, tonic::Status> {
         let mut client = self.client.clone();
         
-        // Metadata ekleme (Trace ID vb.) buraya eklenebilir
-        let req = Request::new(request);
+        // Metadata ekleme (Trace ID vb.)
+        let mut req = Request::new(request);
+
+        // Metadata Propagation (Trace ID İletimi)
+        if let Some(tid) = trace_id {
+            // from_str artık kullanılabilir çünkü std::str::FromStr eklendi.
+            if let Ok(meta_val) = MetadataValue::from_str(&tid) {
+                req.metadata_mut().insert("x-trace-id", meta_val);
+            }
+        }
 
         match client.generate_stream(req).await {
             Ok(response) => Ok(response.into_inner()),

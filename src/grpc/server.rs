@@ -27,42 +27,46 @@ impl LlmGatewayService for LlmGateway {
         &self,
         request: Request<GenerateDialogStreamRequest>,
     ) -> Result<Response<Self::GenerateDialogStreamStream>, Status> {
+        
+        // 1. TRACE ID EXTRACT (Metaveriyi Çek)
+        let trace_id = request.metadata()
+            .get("x-trace-id")
+            .and_then(|m| m.to_str().ok())
+            .map(|s| s.to_string());
+
         let req = request.into_inner();
         let model_selector = req.model_selector.clone();
         
-        info!("LLM Request received. Selector: {}, Tenant: {}", model_selector, req.tenant_id);
+        // Trace ID'yi logla (Artık loglarda görünecek)
+        info!(
+            "LLM Request received. Selector: {}, TraceID: {}", 
+            model_selector, 
+            trace_id.as_deref().unwrap_or("none")
+        );
 
-        // 1. ROUTING LOGIC (Basit Başlangıç)
-        // Eğer selector "local" ise veya boşsa Llama'ya git.
-        // Gelecekte "gemini" veya "gpt" gelirse burada switch-case olacak.
-        
         if model_selector != "local" && !model_selector.is_empty() {
              warn!("Requested model '{}' not explicitly supported yet, falling back to Local Llama.", model_selector);
         }
 
-        // 2. Request Mapping (Gateway Request -> Llama Request)
-        // Gateway proto'sundaki `llama_request` alanını (field 10) alıyoruz.
         let llama_req = req.llama_request.ok_or_else(|| 
             Status::invalid_argument("llama_request field is required inside GenerateDialogStreamRequest")
         )?;
 
-        // 3. Upstream Call
-        let mut upstream_stream = self.llama_client.generate_stream(llama_req).await?;
+        // 2. TRACE ID PROPAGATION (İlet)
+        let mut upstream_stream = self.llama_client.generate_stream(llama_req, trace_id).await?;
 
-        // 4. Response Mapping (Stream Transformation)
         let (tx, rx) = tokio::sync::mpsc::channel(128);
 
         tokio::spawn(async move {
             while let Some(result) = upstream_stream.next().await {
                 match result {
                     Ok(llama_resp) => {
-                        // Llama yanıtını Gateway yanıtına sarıyoruz
                         let gateway_resp = GenerateDialogStreamResponse {
                             llama_response: Some(llama_resp),
                         };
                         
                         if tx.send(Ok(gateway_resp)).await.is_err() {
-                            break; // İstemci koptu
+                            break; 
                         }
                     }
                     Err(e) => {

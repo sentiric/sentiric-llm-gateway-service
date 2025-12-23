@@ -6,11 +6,14 @@ networks:
         - subnet: ${NETWORK_SUBNET:-10.88.0.0/16}
           gateway: ${NETWORK_GATEWAY:-10.88.0.1}
 
+volumes:
+  # Modelleri tekrar tekrar indirmemek için kalıcı volume
+  sentiric-models:
+
 services:
-  # 🧠 KATMAN 3: LLM GATEWAY SERVICE
+  # 🧠 KATMAN 3: LLM GATEWAY SERVICE (RUST)
   llm-gateway-service:
     image: ghcr.io/sentiric/sentiric-llm-gateway-service:latest
-    container_name: llm-gateway-service
     build:
       context: .
       dockerfile: Dockerfile
@@ -20,41 +23,75 @@ services:
       - ENV=development
       - RUST_LOG=info,sentiric_llm_gateway_service=debug
       
-      # --- KRİTİK DÜZELTME ---
-      # 1. Mock servisin container ismi: llm-llama-mock-service
-      # 2. Mock servisin İÇ (Internal) gRPC portu: 4770 (Loglarda: Serving gRPC addr=[::]:4770)
-      - LLM_LLAMA_SERVICE_GRPC_URL=http://llm-llama-mock-service:4770
+      # KRİTİK DÜZELTME: http:// -> https://
+      # Tonic kütüphanesi TLS handshake'i başlatmak için https şeması bekler.
+      - LLM_LLAMA_SERVICE_GRPC_URL=https://llm-llama-service:16071
       
-      # Sertifika Yolları (Zorunlu)
+      # --- Güvenlik ---
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
       - LLM_GATEWAY_SERVICE_CERT_PATH=/sentiric-certificates/certs/llm-gateway-service.crt
       - LLM_GATEWAY_SERVICE_KEY_PATH=/sentiric-certificates/certs/llm-gateway-service.key
       
     ports:
-      - "16020:16020"
-      - "16021:16021"
-      - "16022:16022"
+      - "16020:16020" # HTTP
+      - "16021:16021" # gRPC
+      - "16022:16022" # Metrics
     networks:
       sentiric-net:
         ipv4_address: ${LLM_GATEWAY_SERVICE_IPV4_ADDRESS:-10.88.60.2}
     restart: always
     depends_on:
-      - llm-llama-mock-service
+      llm-llama-service:
+        condition: service_healthy
 
-  # 🎭 MOCK ENGINE
-  llm-llama-mock-service:
-    image: ghcr.io/bavix/gripmock
-    container_name: llm-llama-mock-service
-    networks:
-      - sentiric-net
-    ports:
-      # Dış: 16071 -> İç: 4770
-      - "16071:4770"
-      - "4771:4771"
+  # 🦾 KATMAN 4: LLM LLAMA SERVICE (C++ REAL ENGINE)
+  llm-llama-service:
+    image: ghcr.io/sentiric/sentiric-llm-llama-service:latest-gpu
+    build:
+      # Yan klasördeki gerçek projeyi derler
+      context: ../sentiric-llm-llama-service
+      # GPU varsa 'Dockerfile.gpu' kullanın, yoksa 'Dockerfile'
+      dockerfile: Dockerfile 
     volumes:
-      - ../sentiric-contracts:/sentiric-contracts:ro
-    # Proto import yolu eklendi
-    command: 
-      - "--imports=/sentiric-contracts/proto"
-      - "/sentiric-contracts/proto/sentiric/llm/v1/llama.proto"
-      - "/sentiric-contracts/proto/sentiric/llm/v1/gateway.proto"
+      - ../sentiric-certificates:/sentiric-certificates:ro
+      - sentiric-models:/models
+    environment:
+      # --- Performans Ayarları ---
+      - LLM_LLAMA_SERVICE_GPU_LAYERS=0 # CPU için 0, GPU için 99
+      - LLM_LLAMA_SERVICE_CONTEXT_SIZE=4096
+      - LLM_LLAMA_SERVICE_THREADS=4
+      
+      # --- Model Ayarları (Otomatik İndirir) ---
+      # Küçük ve hızlı bir model seçiyoruz (Test için)
+      - LLM_LLAMA_SERVICE_MODEL_ID=Qwen/Qwen2.5-1.5B-Instruct-GGUF
+      - LLM_LLAMA_SERVICE_MODEL_FILENAME=qwen2.5-1.5b-instruct-q4_k_m.gguf
+      
+      # --- Network ---
+      - LLM_LLAMA_SERVICE_GRPC_PORT=16071
+      - LLM_LLAMA_SERVICE_HTTP_PORT=16070
+      
+      # --- Güvenlik ---
+      - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
+      - LLM_LLAMA_SERVICE_CERT_PATH=/sentiric-certificates/certs/llm-llama-service.crt
+      - LLM_LLAMA_SERVICE_KEY_PATH=/sentiric-certificates/certs/llm-llama-service.key
+
+    ports:
+      - "16070:16070" # Engine HTTP
+      - "16071:16071" # Engine gRPC
+    networks:
+      sentiric-net:
+        ipv4_address: 10.88.60.7
+    healthcheck:
+      # Model inene kadar 'unhealthy' döner, Gateway bunu bekler
+      test: ["CMD", "curl", "-f", "http://localhost:16070/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60m # Model indirme ve dönüştürme uzun sürebilir
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
