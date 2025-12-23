@@ -20,7 +20,7 @@ services:
 
   # Mock LLM Engine: gRPC testi için
   mock-llm-engine:
-    image: gripmock/gripmock:latest
+    image: ghcr.io/bavix/gripmock
     container_name: sentiric-mock-llm
     networks:
       - sentiric-net
@@ -29,4 +29,4 @@ services:
     volumes:
       - ../sentiric-contracts/proto/sentiric/llm/v1:/proto
     # contracts içindeki proto dosyasına göre mock oluştur
-    command: ["/proto/local.proto"] 
+    command: ["/proto/llama.proto"] 
