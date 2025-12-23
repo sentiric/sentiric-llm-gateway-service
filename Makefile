@@ -16,7 +16,7 @@ down: ## Servisleri durdurur
 	docker compose down --remove-orphans
 
 logs: ## Logları canlı izler
-	docker compose logs -f llm-gateway-service
+	docker compose logs -f 
 
 clean: ## Cache ve artifactleri temizler
 	cargo clean
