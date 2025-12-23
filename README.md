@@ -1,46 +1,49 @@
 # 🧠 Sentiric LLM Gateway Service
 
 [![Status](https://img.shields.io/badge/status-active-success.svg)]()
+[![Security](https://img.shields.io/badge/security-mTLS-green.svg)]()
 [![Architecture](https://img.shields.io/badge/architecture-layer_3_gateway-blue.svg)]()
-[![Language](https://img.shields.io/badge/language-Rust-orange.svg)]()
 
-**Sentiric İletişim İşletim Sistemi**'nin "Zeka Dağıtım Merkezi"dir. Platformdaki tüm Büyük Dil Modeli (LLM) isteklerini karşılar ve bunları maliyet, hız veya yetenek gereksinimlerine göre uygun motora (Yerel Llama, Bulut Gemini vb.) yönlendirir.
+**Sentiric İletişim İşletim Sistemi**'nin "Zeka Dağıtım Merkezi"dir. Platformdaki tüm Büyük Dil Modeli (LLM) isteklerini karşılar, güvenli bir tünel (mTLS) üzerinden uygun motora (Yerel Llama vb.) yönlendirir ve yanıtı anlık olarak (Streaming) istemciye iletir.
 
-## 🎯 Temel Sorumluluklar
+## 🎯 Temel Yetenekler
 
-1.  **Model Yönlendirme (Model Routing):** İstek içindeki `model_selector` etiketine göre trafiği yönlendirir (örn: `local:gemma` -> Llama Service, `cloud:gemini` -> Gemini Service).
-2.  **Token Streaming:** Zeka motorlarından gelen yanıtları (token) biriktirmeden, kelime kelime istemciye iletir. Bu, kullanıcının bekleme süresini (Latency) hissetmemesini sağlar.
-3.  **Protokol Standardizasyonu:** Arka plandaki motorların farklı API'lerini (REST, gRPC) dış dünyaya tek bir standart gRPC arayüzü olarak sunar.
-4.  **Yedekleme (Fallback):** Birincil motor (örn: Yerel GPU) yanıt vermezse, trafiği otomatik olarak ikincil motora (örn: Bulut) kaydırabilir.
+1.  **Güvenli Yönlendirme (Secure Routing):** İstemci ve Uzman Motorlar arasındaki trafiği **mTLS (Karşılıklı TLS)** ile şifreler.
+2.  **Akıllı Seçim:** `model_selector` parametresine göre trafiği Yerel (Llama) veya Bulut motorlarına yönlendirir.
+3.  **Protokol Dönüşümü:** `GenerateDialogStream` (Gateway) formatını `GenerateStream` (Motor) formatına dönüştürür.
+4.  **Yüksek Performans:** Rust (Tokio/Tonic) tabanlı mimarisi ile <2ms gecikme (overhead) ekler.
 
 ## 🏗️ Mimari Konum
 
-Bu servis **Katman 3 (Ağ Geçitleri)** seviyesinde yer alır.
-
-*   **Üst Akış (Callers):** `dialog-service`, `agent-service`.
-*   **Alt Akış (Downstreams):**
-    *   `llm-llama-service` (Yerel / C++ / gRPC)
-    *   `llm-gemini-service` (Bulut / Python / gRPC)
+*   **Üst Akış (Callers):** `sentiric-dialog-service`
+*   **Alt Akış (Upstreams):** `sentiric-llm-llama-service` (gRPC/mTLS)
 
 ## 📦 Kurulum ve Çalıştırma
 
 ### Gereksinimler
 *   Rust (1.75+)
-*   Protobuf Compiler (`protoc`)
+*   `sentiric-certificates` tarafından üretilmiş sertifikalar (`/certs` dizininde olmalı).
 
-### Komutlar
+### Ortam Değişkenleri (.env)
 ```bash
-# Ortamı hazırla
-make setup
+# Servis Ayarları
+HOST=0.0.0.0
+GRPC_PORT=16021
 
-# Servisi başlat
-make up
+# Hedef Motor
+LLM_LLAMA_URL=http://llm-llama-service:16071
 
-# Logları izle
-make logs
+# Güvenlik (Zorunlu)
+GRPC_TLS_CA_PATH=../sentiric-certificates/certs/ca.crt
+LLM_GATEWAY_SERVICE_CERT_PATH=../sentiric-certificates/certs/llm-gateway-service.crt
+LLM_GATEWAY_SERVICE_KEY_PATH=../sentiric-certificates/certs/llm-gateway-service.key
 ```
 
-## 🔌 API ve Portlar
+### Başlatma
+```bash
+# Local Development
+make up
 
-*   **gRPC (16021):** `sentiric.llm.v1.LlmGatewayService`
-*   **HTTP (16020):** `/health`, `/metrics`
+# Production Build
+cargo build --release
+```

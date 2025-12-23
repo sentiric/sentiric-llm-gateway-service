@@ -1,45 +1,20 @@
-# 📋 Teknik Şartname (Specification)
+# 📋 Teknik Şartname
 
 ## 1. Servis Kimliği
 *   **Adı:** `sentiric-llm-gateway-service`
 *   **Dil:** Rust (Tokio / Tonic)
 *   **Port Bloğu:** 1602X (Harmonik Mimari)
 
-## 2. API Kontratı (gRPC)
+## 2. Kaynak Tüketimi
+*   **CPU:** Idle durumda < %1, Yük altında (1000 req/s) < %10 (Tek Çekirdek)
+*   **RAM:** < 50 MB (Stateless olduğu için)
 
-Servis, `sentiric-contracts` reposundaki `sentiric.llm.v1` paketini implemente eder.
+## 3. API Kontratı
+Servis, `sentiric-contracts` v1.12.3 sürümünü kullanır.
+*   **Paket:** `sentiric.llm.v1`
+*   **Servis:** `LlmGatewayService`
+*   **Metod:** `GenerateDialogStream`
 
-### Proto Tanımı (`llm/v1/gateway.proto`)
-
-```protobuf
-service LlmGatewayService {
-  rpc GenerateStream(GenerateStreamRequest) returns (stream GenerateStreamResponse);
-}
-
-message GenerateStreamRequest {
-  string system_prompt = 1;     // AI Kişiliği (örn: "Sen yardımsever bir asistansın")
-  string user_prompt = 2;       // Kullanıcı girdisi
-  string model_selector = 3;    // örn: "local", "gemini", "gpt-4"
-  
-  repeated ChatMessage history = 4; // Konuşma geçmişi (Context)
-}
-
-message GenerateStreamResponse {
-  string token = 1;             // Üretilen metin parçası
-  string engine_used = 2;       // Hangi motorun cevap verdiği
-}
-```
-
-## 3. Ortam Değişkenleri
-
-| Değişken | Zorunlu | Açıklama |
-| :--- | :--- | :--- |
-| `LLM_GATEWAY_SERVICE_GRPC_PORT` | Evet | 16021 |
-| `LLM_LLAMA_SERVICE_GRPC_URL` | Evet | http://llm-llama-service:16071 |
-| `LLM_GEMINI_SERVICE_GRPC_URL` | Hayır | http://llm-gemini-service:16031 |
-| `ENABLE_FALLBACK` | Hayır | `true` ise yerel motor çökünce buluta gider. |
-
-## 4. Performans Hedefleri
-
-*   **Overhead:** Gateway'in eklediği gecikme < 2ms olmalıdır.
-*   **Concurrency:** Rust'ın asenkron yapısı sayesinde tek pod ile binlerce eş zamanlı diyalog akışını yönetebilmelidir.
+## 4. Hata Yönetimi
+*   Upstream (Llama) ulaşılamazsa: `Status::UNAVAILABLE` döner.
+*   Sertifika hatası varsa: Servis `panic` ile kapanır (Fail Fast).

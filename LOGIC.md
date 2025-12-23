@@ -1,20 +1,15 @@
-# 🧠 Mantık ve Yönlendirme Mimarisi
-
-Bu belge, `llm-gateway-service`in model seçimini nasıl yaptığını ve token akışını nasıl yönettiğini açıklar.
+# 🧠 Mantık ve Yönlendirme Mimarisi (v2.0)
 
 ## 1. Yönlendirme Tablosu (Routing Logic)
 
-Gateway, gRPC isteğindeki `model_selector` alanını analiz eder (Format: `provider:model`).
+Gateway, gRPC isteğindeki `model_selector` alanını analiz eder.
 
-| Ön Ek (Provider) | Hedef Servis | URL (Env Değişkeni) | Protokol |
+| Selector | Hedef Servis | Protokol | Güvenlik |
 | :--- | :--- | :--- | :--- |
-| `local` (Varsayılan) | **LLM Llama Service** | `LLM_LLAMA_SERVICE_GRPC_URL` | gRPC Stream |
-| `gemini` | **LLM Gemini Service** | `LLM_GEMINI_SERVICE_GRPC_URL` | gRPC Stream |
-| `ollama` | **LLM Ollama Service** | `LLM_OLLAMA_SERVICE_URL` | REST/Stream |
+| `local` (veya boş veya llama) | **LLM Llama Service** | gRPC Stream | mTLS (Client Cert) |
+| `cloud` | *Planlanıyor (Gemini)* | gRPC | mTLS |
 
-*Örnek:* `model_selector: "local:gemma-2b"` -> `llm-llama-service`'e gider.
-
-## 2. Akış Diyagramı (Token Streaming)
+## 2. Veri Akış Diyagramı
 
 ```mermaid
 sequenceDiagram
@@ -22,29 +17,25 @@ sequenceDiagram
     participant GW as LLM Gateway
     participant Llama as Llama Service (C++)
 
-    Dialog->>GW: GenerateStream(prompt="Merhaba", selector="local")
-    GW->>GW: Selector Analizi -> Llama Seçildi
-    GW->>Llama: GenerateStream(prompt="Merhaba")
+    Note over Dialog, GW: mTLS Handshake (Server Cert)
+    Dialog->>GW: GenerateDialogStream(selector="local")
     
-    loop Token Generation
-        Llama-->>GW: Token("Mer")
-        GW-->>Dialog: Token("Mer")
-        Llama-->>GW: Token("ha")
-        GW-->>Dialog: Token("ha")
-        Llama-->>GW: Token("ba")
-        GW-->>Dialog: Token("ba")
+    Note over GW: Router: Select "LlamaClient"
+    Note over GW, Llama: mTLS Handshake (Client Cert)
+    
+    GW->>Llama: GenerateStream(prompt)
+    
+    loop Token Streaming
+        Llama-->>GW: Response(token="Mer")
+        GW-->>GW: Map to GatewayResponse
+        GW-->>Dialog: Response(token="Mer")
     end
-    
-    Llama-->>GW: EOS (End of Stream)
-    GW-->>Dialog: EOS
 ```
 
-## 3. Fallback Stratejisi (Hata Yönetimi)
+## 3. Güvenlik Mimarisi (mTLS)
 
-Eğer seçilen motor (örneğin Local Llama) `UNAVAILABLE` veya `DEADLINE_EXCEEDED` hatası verirse:
+Bu servis **Zero Trust** prensibiyle çalışır:
+1.  **Server Modu:** Kendisine bağlanan `Dialog Service`'in güvenilir olduğunu doğrulamak için CA sertifikasını kullanır.
+2.  **Client Modu:** `Llama Service`'e bağlanırken kendi kimliğini (Client Certificate) ibraz eder.
 
-1.  **Logla:** Hatayı `WARN` seviyesinde logla.
-2.  **Karar:** Konfigürasyonda `ENABLE_FALLBACK=true` ise:
-    *   Otomatik olarak **Cloud Motoruna (Gemini)** yönlendir.
-    *   İstemciye hissettirmeden akışı oradan başlat.
-3.  **Aksi halde:** İstemciye hatayı dön.
+Sertifika yolları `config.rs` üzerinden yüklenir ve `src/tls.rs` modülünde işlenir.
