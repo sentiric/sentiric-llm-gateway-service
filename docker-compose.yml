@@ -1,97 +1,114 @@
+name: sentiric
+
+x-ai-service-template: &ai-service-template
+  restart: always
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [ gpu, compute, utility ] # Genişletildi
+  healthcheck:
+    interval: 30s
+    timeout: 10s
+    retries: 10
+    start_period: 60m
+
 networks:
   sentiric-net:
     driver: bridge
+    name: sentiric-net
     ipam:
       config:
         - subnet: ${NETWORK_SUBNET:-10.88.0.0/16}
           gateway: ${NETWORK_GATEWAY:-10.88.0.1}
 
 volumes:
-  # Modelleri tekrar tekrar indirmemek için kalıcı volume
-  sentiric-models:
+  llm-llama-models:
+  llm-llama-cache:
+  llm-llama-loras:
 
 services:
-  # 🧠 KATMAN 3: LLM GATEWAY SERVICE (RUST)
+  # =============================================================
+  # KATMAN 3: AI Gateway
+  # =============================================================
   llm-gateway-service:
     image: ghcr.io/sentiric/sentiric-llm-gateway-service:latest
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
-      - ../sentiric-certificates:/sentiric-certificates:ro
+      - "${CERTIFICATES_REPO_PATH:-../sentiric-certificates}:/sentiric-certificates:ro"
     environment:
-      - ENV=development
-      - RUST_LOG=info,sentiric_llm_gateway_service=debug
+      # --- Ağ & Config ---
+      - ENV=production
+      - RUST_LOG=info,sentiric_llm_gateway=debug
+      - HOST=0.0.0.0
+      - GRPC_PORT=${LLM_GATEWAY_SERVICE_GRPC_PORT:-16021}
       
-      # KRİTİK DÜZELTME: http:// -> https://
-      # Tonic kütüphanesi TLS handshake'i başlatmak için https şeması bekler.
-      - LLM_LLAMA_SERVICE_GRPC_URL=https://llm-llama-service:16071
+      # --- Hedef Servis (Llama) ---
+      # Gateway buraya HTTPS ile gidecek, sertifikalar aşağıda tanımlı
+      - LLM_LLAMA_SERVICE_GRPC_URL=https://llm-llama-service:${LLM_LLAMA_SERVICE_GRPC_PORT:-16071}
       
-      # --- Güvenlik ---
+      # --- Güvenlik (mTLS Client & Server) ---
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
       - LLM_GATEWAY_SERVICE_CERT_PATH=/sentiric-certificates/certs/llm-gateway-service.crt
       - LLM_GATEWAY_SERVICE_KEY_PATH=/sentiric-certificates/certs/llm-gateway-service.key
-      
-    ports:
-      - "16020:16020" # HTTP
-      - "16021:16021" # gRPC
-      - "16022:16022" # Metrics
     networks:
       sentiric-net:
         ipv4_address: ${LLM_GATEWAY_SERVICE_IPV4_ADDRESS:-10.88.60.2}
+    ports:
+      - "${LLM_GATEWAY_SERVICE_HTTP_PORT:-16020}:${LLM_GATEWAY_SERVICE_HTTP_PORT:-16020}"
+      - "${LLM_GATEWAY_SERVICE_GRPC_PORT:-16021}:${LLM_GATEWAY_SERVICE_GRPC_PORT:-16021}"
+      - "${LLM_GATEWAY_SERVICE_METRICS_PORT:-16022}:${LLM_GATEWAY_SERVICE_METRICS_PORT:-16022}"
     restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:${LLM_GATEWAY_SERVICE_HTTP_PORT:-16020}/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 60
     depends_on:
       llm-llama-service:
         condition: service_healthy
 
-  # 🦾 KATMAN 4: LLM LLAMA SERVICE (C++ REAL ENGINE)
+  # =============================================================
+  # KATMAN 4: AI SERVİSLERİ
+  # =============================================================
   llm-llama-service:
+    <<: *ai-service-template
+    # GPU Image'ı zorla (Build context yerine image kullanıyoruz ki local CPU build çakışmasın)
     image: ghcr.io/sentiric/sentiric-llm-llama-service:latest-gpu
-    build:
-      # Yan klasördeki gerçek projeyi derler
-      context: ../sentiric-llm-llama-service
-      # GPU varsa 'Dockerfile.gpu' kullanın, yoksa 'Dockerfile'
-      dockerfile: Dockerfile 
     volumes:
-      - ../sentiric-certificates:/sentiric-certificates:ro
-      - sentiric-models:/models
+      - "${CERTIFICATES_REPO_PATH:-../sentiric-certificates}:/sentiric-certificates:ro"
+      - llm-llama-models:/models
+      - llm-llama-loras:/lora_adapters
     environment:
-      # --- Performans Ayarları ---
-      - LLM_LLAMA_SERVICE_GPU_LAYERS=0 # CPU için 0, GPU için 99
-      - LLM_LLAMA_SERVICE_CONTEXT_SIZE=4096
-      - LLM_LLAMA_SERVICE_THREADS=4
+      # --- GPU & Performans ---
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - LLM_LLAMA_SERVICE_GPU_LAYERS=${LLM_LLAMA_SERVICE_GPU_LAYERS:-100} # Max Offload
+      - LLM_LLAMA_SERVICE_CONTEXT_SIZE=${LLM_LLAMA_SERVICE_CONTEXT_SIZE:-4096}
       
-      # --- Model Ayarları (Otomatik İndirir) ---
-      # Küçük ve hızlı bir model seçiyoruz (Test için)
-      - LLM_LLAMA_SERVICE_MODEL_ID=Qwen/Qwen2.5-1.5B-Instruct-GGUF
-      - LLM_LLAMA_SERVICE_MODEL_FILENAME=qwen2.5-1.5b-instruct-q4_k_m.gguf
-      
-      # --- Network ---
-      - LLM_LLAMA_SERVICE_GRPC_PORT=16071
-      - LLM_LLAMA_SERVICE_HTTP_PORT=16070
-      
-      # --- Güvenlik ---
+      # --- Güvenlik (mTLS Server) ---
+      # KRİTİK DÜZELTME: Bu değişkenler eksikti, o yüzden Llama insecure açılıyordu.
       - GRPC_TLS_CA_PATH=/sentiric-certificates/certs/ca.crt
-      - LLM_LLAMA_SERVICE_CERT_PATH=/sentiric-certificates/certs/llm-llama-service.crt
+      - LLM_LLAMA_SERVICE_CERT_PATH=/sentiric-certificates/certs/llm-llama-service-chain.crt
       - LLM_LLAMA_SERVICE_KEY_PATH=/sentiric-certificates/certs/llm-llama-service.key
-
-    ports:
-      - "16070:16070" # Engine HTTP
-      - "16071:16071" # Engine gRPC
+      
+      # --- Ağ ---
+      - LLM_LLAMA_SERVICE_HOST=0.0.0.0
+      - LLM_LLAMA_SERVICE_GRPC_PORT=${LLM_LLAMA_SERVICE_GRPC_PORT:-16071}
+      - LLM_LLAMA_SERVICE_HTTP_PORT=${LLM_LLAMA_SERVICE_HTTP_PORT:-16070}
     networks:
       sentiric-net:
-        ipv4_address: 10.88.60.7
+        ipv4_address: ${LLM_LLAMA_SERVICE_IPV4_ADDRESS:-10.88.60.7}
+    ports:
+      - "${LLM_LLAMA_SERVICE_HTTP_PORT:-16070}:${LLM_LLAMA_SERVICE_HTTP_PORT:-16070}"
+      - "${LLM_LLAMA_SERVICE_GRPC_PORT:-16071}:${LLM_LLAMA_SERVICE_GRPC_PORT:-16071}"
     healthcheck:
-      # Model inene kadar 'unhealthy' döner, Gateway bunu bekler
-      test: ["CMD", "curl", "-f", "http://localhost:16070/health"]
+      test: [ "CMD", "curl", "-f", "-k", "https://localhost:${LLM_LLAMA_SERVICE_HTTP_PORT:-16070}/health" ]
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 60m # Model indirme ve dönüştürme uzun sürebilir
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+      start_period: 60m
