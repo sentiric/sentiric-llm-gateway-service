@@ -24,10 +24,12 @@ RUN cargo build --release --bin sentiric-llm-gateway-service
 # --- STAGE 4: Runtime (Minimal) ---
 FROM debian:bookworm-slim AS runtime
 
+# DÜZELTME: 'netcat-openbsd' eklendi (TCP Healthcheck için)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     curl \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1001 appuser
