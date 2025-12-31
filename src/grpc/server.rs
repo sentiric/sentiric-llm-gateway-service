@@ -37,12 +37,15 @@ impl LlmGatewayService for LlmGateway {
         let req = request.into_inner();
         let model_selector = req.model_selector.clone();
         
-        // Trace ID'yi logla (Artık loglarda görünecek)
+        // [FIX] Selector ismini düzelt
+        let effective_selector = if model_selector == "local" { "llama" } else { &model_selector };
+        
         info!(
             "LLM Request received. Selector: {}, TraceID: {}", 
-            model_selector, 
+            effective_selector, // local yerine llama yazacak
             trace_id.as_deref().unwrap_or("none")
         );
+
 
         if model_selector != "local" && !model_selector.is_empty() {
              warn!("Requested model '{}' not explicitly supported yet, falling back to Local Llama.", model_selector);
