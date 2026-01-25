@@ -1,7 +1,10 @@
+// sentiric-llm-gateway-service/src/app.rs
+
 use crate::config::AppConfig;
 use crate::clients::llama::LlamaClient;
 use crate::grpc::server::LlmGateway;
 use crate::tls::load_server_tls_config;
+use crate::metrics::start_metrics_server; // YENİ IMPORT
 use sentiric_contracts::sentiric::llm::v1::llm_gateway_service_server::LlmGatewayServiceServer;
 use tonic::transport::Server;
 use std::net::SocketAddr;
@@ -17,7 +20,14 @@ impl App {
         tracing_subscriber::fmt().with_env_filter(&config.rust_log).init();
         info!("🚀 LLM Gateway Service v{} starting...", config.service_version);
 
+        // 1. Upstream Bağlantısı
         let llama_client = LlamaClient::connect(&config).await?;
+        
+        // 2. Metrics & Health Server Başlatma
+        let metrics_addr: SocketAddr = format!("{}:{}", config.host, config.http_port).parse()?; // Port 16020
+        start_metrics_server(metrics_addr, llama_client.clone());
+
+        // 3. gRPC Server Başlatma
         let addr: SocketAddr = format!("{}:{}", config.host, config.grpc_port).parse()?;
         let gateway_service = LlmGateway::new(llama_client);
         

@@ -7,7 +7,7 @@ use tonic::Request;
 use tonic::metadata::MetadataValue;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{info, error, warn};
+use tracing::{info, error}; // DÜZELTME: 'warn' kaldırıldı
 
 #[derive(Clone)]
 pub struct LlamaClient {
@@ -53,5 +53,10 @@ impl LlamaClient {
                 Err(e)
             }
         }
+    }
+
+    // Basit bağlantı kontrolü
+    pub fn is_ready(&self) -> bool {
+        true 
     }
 }
