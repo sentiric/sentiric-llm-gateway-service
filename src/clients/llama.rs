@@ -1,3 +1,4 @@
+// Dosya: src/clients/llama.rs
 use crate::config::AppConfig;
 use crate::tls::load_client_tls_config;
 use sentiric_contracts::sentiric::llm::v1::llama_service_client::LlamaServiceClient;
@@ -7,7 +8,7 @@ use tonic::Request;
 use tonic::metadata::MetadataValue;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{info, error}; // DÜZELTME: 'warn' kaldırıldı
+use tracing::{info, error};
 
 #[derive(Clone)]
 pub struct LlamaClient {
@@ -18,14 +19,14 @@ impl LlamaClient {
     pub async fn connect(config: &Arc<AppConfig>) -> anyhow::Result<Self> {
         let url = config.llm_llama_service_grpc_url.clone();
         
-        let channel = if url.starts_with("http://") {
-            info!("🔌 Connecting to Llama Engine (INSECURE): {}", url);
-            Endpoint::from_shared(url)?.connect().await?
-        } else {
-            info!("🔐 Connecting to Llama Engine (mTLS): {}", url);
-            let tls_config = load_client_tls_config(config).await?;
-            Endpoint::from_shared(url)?.tls_config(tls_config)?.connect().await?
-        };
+        // [ARCH-COMPLIANCE] constraints.yaml: grpc_communication ZORUNLU OLARAK mTLS ile şifrelenmelidir. Insecure bağlantı kabul edilemez.
+        if url.starts_with("http://") {
+            panic!("⚠️ [ARCH-COMPLIANCE] Insecure connection to {} is FORBIDDEN. Use https:// with mTLS.", url);
+        }
+
+        info!("🔐 Connecting to Llama Engine (mTLS): {}", url);
+        let tls_config = load_client_tls_config(config).await?;
+        let channel = Endpoint::from_shared(url)?.tls_config(tls_config)?.connect().await?;
 
         Ok(Self {
             client: LlamaServiceClient::new(channel),
