@@ -4,6 +4,7 @@ use crate::clients::llama::LlamaClient;
 use crate::grpc::server::LlmGateway;
 use crate::tls::load_server_tls_config;
 use crate::metrics::start_metrics_server;
+use crate::logger::SutsV4Formatter; // [YENİ]
 use sentiric_contracts::sentiric::llm::v1::llm_gateway_service_server::LlmGatewayServiceServer;
 use tonic::transport::Server;
 use std::net::SocketAddr;
@@ -17,14 +18,20 @@ impl App {
     pub async fn run() -> Result<()> {
         let config = Arc::new(AppConfig::load()?);
         
-        // [ARCH-COMPLIANCE] constraints.yaml: logging_format ZORUNLU OLARAK JSON formatında olmalıdır.
-        tracing_subscriber::fmt().with_env_filter(&config.rust_log).json().init();
+        // [ARCH-COMPLIANCE] Özel Formatter ile tracing_subscriber ayağa kaldırılır
+        let formatter = SutsV4Formatter {
+            service_name: "llm-gateway-service".to_string(),
+            service_version: config.service_version.clone(),
+            service_env: config.env.clone(),
+        };
+
+        tracing_subscriber::fmt()
+            .with_env_filter(&config.rust_log)
+            .event_format(formatter)
+            .init();
         
-        //[ARCH-COMPLIANCE] SUTS v4.0: event tag added
         info!(
             event = "SERVICE_START",
-            schema_v = "1.0.0",
-            service_version = %config.service_version,
             "🚀 LLM Gateway Service starting..."
         );
 
@@ -32,7 +39,7 @@ impl App {
         let llama_client = LlamaClient::connect(&config).await?;
         
         // 2. Metrics & Health Server Başlatma
-        let metrics_addr: SocketAddr = format!("{}:{}", config.host, config.http_port).parse()?; // Port 16020
+        let metrics_addr: SocketAddr = format!("{}:{}", config.host, config.http_port).parse()?; 
         start_metrics_server(metrics_addr, llama_client.clone());
 
         // 3. gRPC Server Başlatma
@@ -41,13 +48,13 @@ impl App {
         
         let mut builder = Server::builder();
 
-        // [ARCH-COMPLIANCE] constraints.yaml: grpc_communication ZORUNLU OLARAK mTLS ile şifrelenmelidir (Fail Fast).
+        // [ARCH-COMPLIANCE] constraints.yaml: grpc_communication
         if config.llm_gateway_service_cert_path.is_empty() || config.grpc_tls_ca_path.is_empty() {
-            panic!("⚠️ [ARCH-COMPLIANCE] TLS paths empty. Starting in INSECURE mode is FORBIDDEN.");
+            panic!("⚠️[ARCH-COMPLIANCE] TLS paths empty. Starting in INSECURE mode is FORBIDDEN.");
         }
 
         let tls = load_server_tls_config(&config).await
-            .context("⚠️ [ARCH-COMPLIANCE] TLS Load Failed. Insecure fallback is FORBIDDEN.")?;
+            .context("⚠️[ARCH-COMPLIANCE] TLS Load Failed. Insecure fallback is FORBIDDEN.")?;
             
         builder = builder.tls_config(tls)?;
         

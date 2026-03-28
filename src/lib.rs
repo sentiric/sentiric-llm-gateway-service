@@ -5,4 +5,5 @@ pub mod error;
 pub mod grpc;
 pub mod clients;
 pub mod tls;
-pub mod metrics; // YENİ
+pub mod metrics;
+pub mod logger; //[YENİ] SUTS v4.0 Formatter Modülü

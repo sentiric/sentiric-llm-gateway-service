@@ -5,7 +5,8 @@ mod error;
 mod grpc;
 mod clients;
 mod tls;
-mod metrics; // YENİ
+mod metrics;
+mod logger; // [ARCH-COMPLIANCE] SUTS v4.0 Formatter Modülü Binary Ağacına Eklendi
 
 use anyhow::Result;
 use app::App;
