@@ -24,7 +24,8 @@ impl LlamaClient {
             panic!("⚠️ [ARCH-COMPLIANCE] Insecure connection to {} is FORBIDDEN. Use https:// with mTLS.", url);
         }
 
-        info!("🔐 Connecting to Llama Engine (mTLS): {}", url);
+        info!(event = "UPSTREAM_CONNECTING", url = %url, "🔐 Connecting to Llama Engine (mTLS)");
+        
         let tls_config = load_client_tls_config(config).await?;
         let channel = Endpoint::from_shared(url)?.tls_config(tls_config)?.connect().await?;
 
@@ -37,26 +38,49 @@ impl LlamaClient {
         &self,
         request: GenerateStreamRequest,
         trace_id: Option<String>,
+        span_id: Option<String>,
+        tenant_id: Option<String>,
     ) -> Result<tonic::Streaming<GenerateStreamResponse>, tonic::Status> {
         let mut client = self.client.clone();
         let mut req = Request::new(request);
 
-        if let Some(tid) = trace_id {
-            if let Ok(meta_val) = MetadataValue::from_str(&tid) {
+        //[ARCH-COMPLIANCE] Context Propagation - x-trace-id
+        if let Some(ref tid) = trace_id {
+            if let Ok(meta_val) = MetadataValue::from_str(tid) {
                 req.metadata_mut().insert("x-trace-id", meta_val);
+            }
+        }
+        
+        // [ARCH-COMPLIANCE] Context Propagation - x-span-id
+        if let Some(ref sid) = span_id {
+            if let Ok(meta_val) = MetadataValue::from_str(sid) {
+                req.metadata_mut().insert("x-span-id", meta_val);
+            }
+        }
+
+        // [ARCH-COMPLIANCE] Context Propagation - x-tenant-id
+        if let Some(ref ten) = tenant_id {
+            if let Ok(meta_val) = MetadataValue::from_str(ten) {
+                req.metadata_mut().insert("x-tenant-id", meta_val);
             }
         }
 
         match client.generate_stream(req).await {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => {
-                error!("❌ Llama Engine gRPC call failed: {}", e);
+                error!(
+                    event = "UPSTREAM_CALL_FAILED", 
+                    trace_id = ?trace_id, 
+                    span_id = ?span_id,
+                    tenant_id = ?tenant_id,
+                    error = %e, 
+                    "❌ Llama Engine gRPC call failed"
+                );
                 Err(e)
             }
         }
     }
 
-    // Basit bağlantı kontrolü
     pub fn is_ready(&self) -> bool {
         true 
     }

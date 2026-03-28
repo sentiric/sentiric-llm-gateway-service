@@ -7,7 +7,7 @@ use crate::metrics::start_metrics_server;
 use sentiric_contracts::sentiric::llm::v1::llm_gateway_service_server::LlmGatewayServiceServer;
 use tonic::transport::Server;
 use std::net::SocketAddr;
-use tracing::{info};
+use tracing::{info, error};
 use anyhow::{Result, Context};
 use std::sync::Arc;
 
@@ -20,7 +20,13 @@ impl App {
         // [ARCH-COMPLIANCE] constraints.yaml: logging_format ZORUNLU OLARAK JSON formatında olmalıdır.
         tracing_subscriber::fmt().with_env_filter(&config.rust_log).json().init();
         
-        info!("🚀 LLM Gateway Service v{} starting...", config.service_version);
+        //[ARCH-COMPLIANCE] SUTS v4.0: event tag added
+        info!(
+            event = "SERVICE_START",
+            schema_v = "1.0.0",
+            service_version = %config.service_version,
+            "🚀 LLM Gateway Service starting..."
+        );
 
         // 1. Upstream Bağlantısı
         let llama_client = LlamaClient::connect(&config).await?;
@@ -44,12 +50,21 @@ impl App {
             .context("⚠️ [ARCH-COMPLIANCE] TLS Load Failed. Insecure fallback is FORBIDDEN.")?;
             
         builder = builder.tls_config(tls)?;
-        info!("🎧 gRPC Server listening on {} (mTLS Enabled)", addr);
+        
+        info!(
+            event = "GRPC_SERVER_READY", 
+            address = %addr, 
+            "🎧 gRPC Server listening (mTLS Enabled)"
+        );
 
-        builder
+        if let Err(e) = builder
             .add_service(LlmGatewayServiceServer::new(gateway_service))
             .serve(addr)
-            .await?;
+            .await 
+        {
+            error!(event = "GRPC_SERVER_CRASH", error = %e, "gRPC Server stopped unexpectedly.");
+            return Err(e.into());
+        }
 
         Ok(())
     }

@@ -1,4 +1,4 @@
-// sentiric-llm-gateway-service/src/metrics.rs
+// Dosya: src/metrics.rs
 
 use hyper::{service::{make_service_fn, service_fn}, Body, Request, Response, Server as HyperServer, StatusCode};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
@@ -13,8 +13,6 @@ pub const GRPC_REQUESTS_TOTAL: &str = "sentiric_llm_gateway_grpc_requests_total"
 
 // Health Check Handler
 async fn health_handler(client: Arc<LlamaClient>) -> Result<Response<Body>, Infallible> {
-    // Basit bağlantı kontrolü.
-    // İleride buraya gerçek bir gRPC Health Check eklenebilir.
     if client.is_ready() {
         Ok(Response::new(Body::from(r#"{"status":"ok", "upstream":"connected"}"#)))
     } else {
@@ -65,9 +63,10 @@ pub fn start_metrics_server(addr: SocketAddr, client: LlamaClient) {
 
         let server = HyperServer::bind(&addr).serve(make_svc);
         
-        info!(address = %addr, "Prometheus & Health sunucusu dinleniyor...");
+        //[ARCH-COMPLIANCE] SUTS v4.0 event key eklendi
+        info!(event = "METRICS_SERVER_READY", address = %addr, "Prometheus & Health sunucusu dinleniyor...");
         if let Err(e) = server.await {
-            error!(error = %e, "Metrik sunucusu hatası.");
+            error!(event = "METRICS_SERVER_ERROR", error = %e, "Metrik sunucusu hatası.");
         }
     });
 }
