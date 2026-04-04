@@ -3,12 +3,12 @@ use crate::config::AppConfig;
 use crate::tls::load_client_tls_config;
 use sentiric_contracts::sentiric::llm::v1::llama_service_client::LlamaServiceClient;
 use sentiric_contracts::sentiric::llm::v1::{GenerateStreamRequest, GenerateStreamResponse};
-use tonic::transport::{Channel, Endpoint};
-use tonic::Request;
-use tonic::metadata::MetadataValue;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{info, error};
+use tonic::metadata::MetadataValue;
+use tonic::transport::{Channel, Endpoint};
+use tonic::Request;
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct LlamaClient {
@@ -18,16 +18,19 @@ pub struct LlamaClient {
 impl LlamaClient {
     pub async fn connect(config: &Arc<AppConfig>) -> anyhow::Result<Self> {
         let url = config.llm_llama_service_grpc_url.clone();
-        
+
         // [ARCH-COMPLIANCE] constraints.yaml: grpc_communication ZORUNLU OLARAK mTLS ile şifrelenmelidir. Insecure bağlantı kabul edilemez.
         if url.starts_with("http://") {
             panic!("⚠️ [ARCH-COMPLIANCE] Insecure connection to {} is FORBIDDEN. Use https:// with mTLS.", url);
         }
 
         info!(event = "UPSTREAM_CONNECTING", url = %url, "🔐 Connecting to Llama Engine (mTLS)");
-        
+
         let tls_config = load_client_tls_config(config).await?;
-        let channel = Endpoint::from_shared(url)?.tls_config(tls_config)?.connect().await?;
+        let channel = Endpoint::from_shared(url)?
+            .tls_config(tls_config)?
+            .connect()
+            .await?;
 
         Ok(Self {
             client: LlamaServiceClient::new(channel),
@@ -50,7 +53,7 @@ impl LlamaClient {
                 req.metadata_mut().insert("x-trace-id", meta_val);
             }
         }
-        
+
         // [ARCH-COMPLIANCE] Context Propagation - x-span-id
         if let Some(ref sid) = span_id {
             if let Ok(meta_val) = MetadataValue::from_str(sid) {
@@ -69,11 +72,11 @@ impl LlamaClient {
             Ok(response) => Ok(response.into_inner()),
             Err(e) => {
                 error!(
-                    event = "UPSTREAM_CALL_FAILED", 
-                    trace_id = ?trace_id, 
+                    event = "UPSTREAM_CALL_FAILED",
+                    trace_id = ?trace_id,
                     span_id = ?span_id,
                     tenant_id = ?tenant_id,
-                    error = %e, 
+                    error = %e,
                     "❌ Llama Engine gRPC call failed"
                 );
                 Err(e)
@@ -82,6 +85,6 @@ impl LlamaClient {
     }
 
     pub fn is_ready(&self) -> bool {
-        true 
+        true
     }
 }

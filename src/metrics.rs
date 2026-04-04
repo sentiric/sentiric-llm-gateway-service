@@ -1,12 +1,15 @@
 // Dosya: src/metrics.rs
 
-use hyper::{service::{make_service_fn, service_fn}, Body, Request, Response, Server as HyperServer, StatusCode};
+use crate::clients::llama::LlamaClient;
+use hyper::{
+    service::{make_service_fn, service_fn},
+    Body, Request, Response, Server as HyperServer, StatusCode,
+};
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{error, info};
-use crate::clients::llama::LlamaClient;
 
 #[allow(dead_code)]
 pub const GRPC_REQUESTS_TOTAL: &str = "sentiric_llm_gateway_grpc_requests_total";
@@ -14,27 +17,31 @@ pub const GRPC_REQUESTS_TOTAL: &str = "sentiric_llm_gateway_grpc_requests_total"
 // Health Check Handler
 async fn health_handler(client: Arc<LlamaClient>) -> Result<Response<Body>, Infallible> {
     if client.is_ready() {
-        Ok(Response::new(Body::from(r#"{"status":"ok", "upstream":"connected"}"#)))
+        Ok(Response::new(Body::from(
+            r#"{"status":"ok", "upstream":"connected"}"#,
+        )))
     } else {
-        let mut resp = Response::new(Body::from(r#"{"status":"error", "upstream":"disconnected"}"#));
+        let mut resp = Response::new(Body::from(
+            r#"{"status":"error", "upstream":"disconnected"}"#,
+        ));
         *resp.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
         Ok(resp)
     }
 }
 
 async fn route_handler(
-    req: Request<Body>, 
+    req: Request<Body>,
     recorder_handle: PrometheusHandle,
-    client: Arc<LlamaClient>
+    client: Arc<LlamaClient>,
 ) -> Result<Response<Body>, Infallible> {
     match (req.method(), req.uri().path()) {
         (&hyper::Method::GET, "/metrics") => {
             let metrics = recorder_handle.render();
             Ok(Response::new(Body::from(metrics)))
-        },
+        }
         (&hyper::Method::GET, "/health") | (&hyper::Method::GET, "/healthz") => {
             health_handler(client).await
-        },
+        }
         _ => {
             let mut not_found = Response::default();
             *not_found.status_mut() = StatusCode::NOT_FOUND;
@@ -62,7 +69,7 @@ pub fn start_metrics_server(addr: SocketAddr, client: LlamaClient) {
         });
 
         let server = HyperServer::bind(&addr).serve(make_svc);
-        
+
         //[ARCH-COMPLIANCE] SUTS v4.0 event key eklendi
         info!(event = "METRICS_SERVER_READY", address = %addr, "Prometheus & Health sunucusu dinleniyor...");
         if let Err(e) = server.await {
